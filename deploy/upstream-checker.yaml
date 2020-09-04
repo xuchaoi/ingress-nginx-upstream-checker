@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: upstream-checker
+  name: upstream-checker
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: upstream-checker
+  template:
+    metadata:
+      labels:
+        app: upstream-checker
+    spec:
+      containers:
+        - image: xuchaoi/upstream-checker:test
+          imagePullPolicy: IfNotPresent
+          name: checker
