@@ -45,7 +45,9 @@ func Run(s *option.ServerRunOptions) error {
 			backends := f.([]interface{})
 			for i, backendi := range backends {
 				backend := backendi.(map[string]interface{})
-
+				if backend["endpoints"] == nil {
+					continue
+				}
 				var healthEndpoints []map[string]interface{}
 				endpoints := backend["endpoints"].([]interface{})
 				for _, endpointi := range endpoints {
