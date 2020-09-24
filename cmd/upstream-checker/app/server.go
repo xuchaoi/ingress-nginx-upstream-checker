@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"github.com/xuchaoi/ingress-nginx-upstream-checker/cmd/upstream-checker/app/option"
 	"github.com/xuchaoi/ingress-nginx-upstream-checker/pkg/util"
+	"github.com/huandu/go-clone"
 	"io/ioutil"
 	"k8s.io/klog"
+	"sync"
 	"time"
 )
 
@@ -39,57 +41,68 @@ func Run(s *option.ServerRunOptions) error {
 				klog.Error(unmarshalErr)
 				return unmarshalErr
 			}
-
+			// Multi-threaded health check request
+			wg := sync.WaitGroup{}
 			var change bool
 			oldBackends := f.([]interface{})
-			backends := f.([]interface{})
-			for i, backendi := range backends {
+			newBackends := clone.Clone(oldBackends).([]interface{})
+			for i, backendi := range newBackends {
 				backend := backendi.(map[string]interface{})
-				if backend["endpoints"] == nil {
+				if backend["endpoints"] == nil || len(backend["endpoints"].([]interface{})) == 0 {
 					continue
 				}
 				var healthEndpoints []map[string]interface{}
 				endpoints := backend["endpoints"].([]interface{})
+				wg.Add(len(endpoints))
 				for _, endpointi := range endpoints {
 					endpoint := endpointi.(map[string]interface{})
 					addr := endpoint["address"].(string)
 					port := endpoint["port"].(string)
+					if addr == "" || port == "" {
+						klog.V(4).Infof("Endpoint arg error, address: %s, port: %s", addr, port)
+						wg.Done()
+						continue
+					}
 					epUrl := "http://" + addr + ":" + port
-					epRes, err := util.HttpGet(epUrl)
-					epRetry := 0
+					go func(epUrl string) {
+						epRes, err := util.HttpGet(epUrl)
+						epRetry := 0
 
-					//todo: response code judge...
-					if err == nil {
-						klog.V(4).Infof("Check endpoint success, url: %s, status: %s", epUrl, epRes.Status)
-						healthEndpoints = append(healthEndpoints, endpoint)
-					} else {
-						for epRetry <= s.CheckRetry {
-							_, err := util.HttpGet(epUrl)
-							if err == nil {
-								klog.V(4).Infof("Check endpoint success, url: %s, status: %s", epUrl, epRes.Status)
-								healthEndpoints = append(healthEndpoints, endpoint)
-								break
-							} else {
-								// todo: Do you need to sleep for one second, then check
-								epRetry++
-								klog.Errorf("Check endpoint failed, url: %s, err: v%", epUrl, err)
-								continue
+						//todo: response code judge...
+						if err == nil {
+							klog.V(4).Infof("Check endpoint success, url: %s, status: %s", epUrl, epRes.Status)
+							healthEndpoints = append(healthEndpoints, endpoint)
+						} else {
+							for epRetry <= s.CheckRetry {
+								_, err := util.HttpGet(epUrl)
+								if err == nil {
+									klog.V(4).Infof("Retry check endpoint success, url: %s, retry: %d", epUrl, epRetry)
+									healthEndpoints = append(healthEndpoints, endpoint)
+									break
+								} else {
+									// todo: Do you need to sleep for one second, then check
+									epRetry++
+									klog.Errorf("Retry check endpoint failed, url: %s, err: %s, retry: %d", epUrl, err.Error(), epRetry)
+									continue
+								}
 							}
 						}
-					}
+						wg.Done()
+					}(epUrl)
 				}
+				wg.Wait()
 				if len(healthEndpoints) < len(endpoints) {
 					backend["endpoints"] = healthEndpoints
-					backends[i] = backend
+					newBackends[i] = backend
 					change = true
 				}
 			}
 
 			klog.V(4).Infof("old backends data: %v", oldBackends)
-			klog.V(4).Infof("new backends data: %v", backends)
+			klog.V(4).Infof("new backends data: %v", newBackends)
 
 			if change {
-				buf, err := json.Marshal(backends)
+				buf, err := json.Marshal(newBackends)
 				if err != nil {
 					klog.Errorf("Convert the backends to byte through json tool failed, err: %v", err)
 				}

@@ -8,7 +8,7 @@ import (
 const (
 	defaultKubeApiHealthUrl = "https://127.0.0.1:6443/healthz"
 	defaultLuaApiBackendUrl = "http://127.0.0.1:10246/configuration/backends"
-	defaultCheckCycle       = 30
+	defaultCheckCycle       = 15
 	defaultCheckRetry       = 2
 )
 

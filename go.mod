@@ -3,6 +3,7 @@ module github.com/xuchaoi/ingress-nginx-upstream-checker
 go 1.15
 
 require (
+	github.com/huandu/go-clone v1.1.2
 	github.com/spf13/pflag v1.0.5
 	k8s.io/component-base v0.19.0
 	k8s.io/klog v1.0.0
