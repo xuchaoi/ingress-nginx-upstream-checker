@@ -35,6 +35,8 @@ func Run(s *option.ServerRunOptions) error {
 			if err != nil {
 				klog.Error(err)
 			}
+			rollbackShell := "curl -X POST --header \"content-type: application/json\" --data '" + string(data[:]) + "' http://ng_addr:status_port/configuration/backends"
+			klog.V(2).Infof("[Rollback] If you want to restore, please execute the command: %s", rollbackShell)
 			var f interface{}
 			unmarshalErr := json.Unmarshal(data, &f)
 			if unmarshalErr != nil {
@@ -46,15 +48,15 @@ func Run(s *option.ServerRunOptions) error {
 			var change bool
 			oldBackends := f.([]interface{})
 			newBackends := clone.Clone(oldBackends).([]interface{})
-			for i, backendi := range newBackends {
+			for _, backendi := range newBackends {
 				backend := backendi.(map[string]interface{})
 				if backend["endpoints"] == nil || len(backend["endpoints"].([]interface{})) == 0 {
 					continue
 				}
-				var healthEndpoints []map[string]interface{}
+				//var healthEndpoints []map[string]interface{}
 				endpoints := backend["endpoints"].([]interface{})
 				wg.Add(len(endpoints))
-				for _, endpointi := range endpoints {
+				for j, endpointi := range endpoints {
 					endpoint := endpointi.(map[string]interface{})
 					addr := endpoint["address"].(string)
 					port := endpoint["port"].(string)
@@ -64,44 +66,68 @@ func Run(s *option.ServerRunOptions) error {
 						continue
 					}
 					epUrl := "http://" + addr + ":" + port
-					go func(epUrl string) {
+					go func(epUrl string, endpoints []interface{}, j int) {
 						epRes, err := util.HttpGet(epUrl)
-						epRetry := 0
+						epRetry := 1
 
 						//todo: response code judge...
 						if err == nil {
 							klog.V(4).Infof("Check endpoint success, url: %s, status: %s", epUrl, epRes.Status)
-							healthEndpoints = append(healthEndpoints, endpoint)
+							//healthEndpoints = append(healthEndpoints, endpoint)
 						} else {
 							for epRetry <= s.CheckRetry {
 								_, err := util.HttpGet(epUrl)
 								if err == nil {
 									klog.V(4).Infof("Retry check endpoint success, url: %s, retry: %d", epUrl, epRetry)
-									healthEndpoints = append(healthEndpoints, endpoint)
+									//healthEndpoints = append(healthEndpoints, endpoint)
 									break
 								} else {
 									// todo: Do you need to sleep for one second, then check
-									epRetry++
 									klog.Errorf("Retry check endpoint failed, url: %s, err: %s, retry: %d", epUrl, err.Error(), epRetry)
+									epRetry++
 									continue
 								}
 							}
+							if epRetry > s.CheckRetry {
+								tmpEp := make(map[string]interface{})
+								tmpEp["address"] = ""
+								tmpEp["port"] = ""
+								endpoints[j] = tmpEp
+								change = true
+							}
 						}
 						wg.Done()
-					}(epUrl)
-				}
-				wg.Wait()
-				if len(healthEndpoints) < len(endpoints) {
-					backend["endpoints"] = healthEndpoints
-					newBackends[i] = backend
-					change = true
+					}(epUrl, endpoints, j)
 				}
 			}
-
+			wg.Wait()
 			klog.V(4).Infof("old backends data: %v", oldBackends)
 			klog.V(4).Infof("new backends data: %v", newBackends)
-
 			if change {
+				for i, backendi := range newBackends {
+					backend := backendi.(map[string]interface{})
+					var healthEndpoints []map[string]interface{}
+					if backend["endpoints"] == nil || len(backend["endpoints"].([]interface{})) == 0 {
+						continue
+					}
+					endpoints := backend["endpoints"].([]interface{})
+					for _, endpointi := range endpoints {
+						endpoint := endpointi.(map[string]interface{})
+						addr := endpoint["address"].(string)
+						port := endpoint["port"].(string)
+						if addr == "" || port == "" {
+							continue
+						}
+						healthEndpoints = append(healthEndpoints, endpoint)
+					}
+					if healthEndpoints == nil || backend["endpoints"] == nil {
+						delete(backend, "endpoints")
+					} else {
+						backend["endpoints"] = healthEndpoints
+					}
+					newBackends[i] = backend
+				}
+				klog.V(4).Infof("After data cleaning, new backends data: %v", newBackends)
 				buf, err := json.Marshal(newBackends)
 				if err != nil {
 					klog.Errorf("Convert the backends to byte through json tool failed, err: %v", err)
