@@ -21,7 +21,7 @@ func InsecureHttpsGet(url string) (*http.Response, error) {
 
 func HttpGet(url string) (*http.Response, error) {
 	client := http.Client{
-		Timeout: 1 * time.Second,
+		Timeout: 2 * time.Second,
 	}
 	res, err := client.Get(url)
 	return res, err
