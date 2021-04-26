@@ -32,6 +32,7 @@ func Run(s *option.ServerRunOptions) error {
 		return nil
 	}
 
+	var cleanJson bool
 	for {
 		luaApiPorts := strings.Split(s.LuaApiPorts, ",")
 
@@ -41,8 +42,22 @@ func Run(s *option.ServerRunOptions) error {
 		}
 		if err == nil && kubeRes.StatusCode == 200 {
 			klog.V(2).Infof("Check API server status: %s", kubeRes.Status)
-
+			if cleanJson {
+				for _, luaApiPort := range luaApiPorts {
+					filePathAll := fmt.Sprintf("%sbackends-%s.json", defaultBadBackendsPath, luaApiPort)
+					err = os.Remove(filePathAll)
+					if err != nil {
+						klog.Errorf("[Improved] remove bad backends json file (%s) failed, err: %s", filePathAll, err.Error())
+					} else {
+						klog.Infof("[Improved] remove bad backends json file (%s) succeed", filePathAll)
+					}
+				}
+				if err == nil {
+					cleanJson = false
+				}
+			}
 		} else {
+			cleanJson = true
 			for _, luaApiPort := range luaApiPorts {
 				go checker(s, luaApiPort)
 			}
