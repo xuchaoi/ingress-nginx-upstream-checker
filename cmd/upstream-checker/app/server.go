@@ -271,11 +271,11 @@ func checker(s *option.ServerRunOptions, luaApiPort string) error {
 	}
 
 	if badBackends.Backends != nil && len(badBackends.Backends) > 0 {
-		newBackendsToFile.Backends = append(badBackends.Backends, newBackendsToFile.Backends...)
+		newBackendsToFile.Backends = append(newBackendsToFile.Backends, badBackends.Backends...)
 		badChange = true
 	}
 
-	if len(badBackendsFromFile.Backends) == len(newBackendsToFile.Backends) || !badChange {
+	if !badChange {
 		klog.V(2).Infof("[Improved] bad backends from file is no change")
 	} else {
 		badBackendsBytes, err := json.Marshal(newBackendsToFile)
@@ -380,12 +380,16 @@ func addGoodEndpoint(goodBackends BadBackends, endpoints []interface{}, backendN
 
 func intersect(b1, b2 []BadBackend) []BadBackend {
 	var result []BadBackend
-	for _, v2 := range b2 {
-		for k1, v1 := range b1{
+	for _, v1 := range b1 {
+		var exit bool
+		for _, v2 := range b2{
 			if v1.Name == v2.Name && v1.Port == v2.Port && v1.Address == v2.Address {
-				continue
+				exit = true
+				break
 			}
-			result = append(result, b1[k1])
+		}
+		if !exit {
+			result = append(result, v1)
 		}
 	}
 	return result
