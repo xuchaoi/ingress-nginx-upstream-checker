@@ -44,6 +44,21 @@ func Run(s *option.ServerRunOptions) error {
 			klog.V(2).Infof("Check API server status: %s", kubeRes.Status)
 			if cleanJson {
 				for _, luaApiPort := range luaApiPorts {
+					b, e := getBadBackendsByFile(luaApiPort)
+					if e != nil {
+						klog.Errorln("Get bad backends json file has error: " + err.Error())
+						continue
+					}
+					if len(b.Backends) > 0 {
+						// sleep 60s(default), check Upstream again
+						time.Sleep(time.Duration(s.CheckWait) * time.Second)
+						e = checker(s, luaApiPort)
+						if e != nil {
+							klog.Errorln("After recovery, check Upstream again has an error: " + e.Error())
+						}
+					}
+
+					// after check again finished, clean the bad-backends json file
 					filePathAll := fmt.Sprintf("%sbackends-%s.json", defaultBadBackendsPath, luaApiPort)
 					err = os.Remove(filePathAll)
 					if err != nil {
